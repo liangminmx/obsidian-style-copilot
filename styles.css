@@ -1,0 +1,60 @@
+/* Style Copilot Plugin Styles */
+
+.style-copilot-container {
+  padding: 20px;
+}
+
+.style-copilot-header {
+  font-size: 1.2em;
+  font-weight: bold;
+  margin-bottom: 15px;
+  color: var(--text-normal);
+}
+
+.style-copilot-button {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 5px;
+}
+
+.style-copilot-button:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.style-copilot-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  margin-bottom: 10px;
+}
+
+.style-copilot-result {
+  margin-top: 15px;
+  padding: 15px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.style-copilot-error {
+  color: var(--text-error);
+  padding: 10px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.style-copilot-success {
+  color: var(--text-success);
+  padding: 10px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  margin-top: 10px;
+}

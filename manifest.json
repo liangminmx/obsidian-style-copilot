@@ -1,0 +1,10 @@
+{
+  "id": "style-copilot",
+  "name": "Style Copilot",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.8",
+  "description": "Learn writing styles from articles and apply them to your notes with WeChat export support",
+  "author": "liangminmx",
+  "authorUrl": "https://github.com/liangminmx",
+  "isDesktopOnly": false
+}
