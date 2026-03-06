@@ -95,6 +95,15 @@ export default class StyleCopilotPlugin extends Plugin {
             }
         });
 
+        // 注册从笔记学习样式命令
+        this.addCommand({
+            id: 'learn-style-from-note',
+            name: '从当前笔记学习写作风格',
+            callback: (): void => {
+                this.learnStyleFromCurrentNote();
+            }
+        });
+
         // 注册应用样式命令
         this.addCommand({
             id: 'apply-style',
@@ -190,21 +199,94 @@ export default class StyleCopilotPlugin extends Plugin {
     }
 
     private async fetchArticleHtml(url: string): Promise<string> {
+        // 方法1: 尝试使用CORS代理
+        const corsProxies = [
+            `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+            `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        ];
+
+        for (const proxyUrl of corsProxies) {
+            try {
+                const response = await fetch(proxyUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    }
+                });
+
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text && text.length > 100) {
+                        return text;
+                    }
+                }
+            } catch (error) {
+                console.log('CORS代理失败:', error);
+            }
+        }
+
+        // 方法2: 直接抓取（可能因CORS失败）
         try {
             const response = await fetch(url, {
+                mode: 'cors',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; StyleCopilot/1.0)'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 }
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP错误: ${response.status}`);
+            if (response.ok) {
+                return await response.text();
+            }
+        } catch (error) {
+            console.log('直接抓取失败:', error);
+        }
+
+        // 所有方法都失败，提供详细错误信息
+        throw new Error(`无法抓取文章\n\n可能原因：\n• CORS跨域限制\n• 网站需要登录\n• 反爬虫机制\n\n建议：手动复制文章内容到笔记，然后使用"从笔记学习样式"功能`);
+    }
+
+    // 从当前笔记学习样式
+    async learnStyleFromCurrentNote(): Promise<void> {
+        const activeFile = this.app.workspace.getActiveFile();
+        
+        if (!activeFile) {
+            new Notice('❌ 请先打开一个笔记');
+            return;
+        }
+
+        const notice = new Notice('正在学习样式...', 0);
+
+        try {
+            const content = await this.app.vault.read(activeFile);
+            
+            if (!content || content.trim().length < 50) {
+                notice.hide();
+                new Notice('❌ 笔记内容太少，至少需要50个字符');
+                return;
             }
 
-            return await response.text();
+            // 分析写作风格
+            const patterns = this.analyzeStyle(content);
+            
+            // 创建样式模板
+            const template: StyleTemplate = {
+                name: activeFile.basename || `样式-${Date.now()}`,
+                createdAt: Date.now(),
+                source: `笔记: ${activeFile.path}`,
+                patterns: patterns
+            };
+
+            // 保存样式模板
+            this.settings.savedStyles.push(template);
+            void this.saveSettings();
+
+            notice.hide();
+            new Notice(`✅ 样式学习成功: ${template.name}\n来源: 当前笔记`);
         } catch (error) {
+            notice.hide();
             const errorMessage = error instanceof Error ? error.message : String(error);
-            throw new Error(`抓取失败: ${errorMessage}`);
+            new Notice(`❌ 学习失败: ${errorMessage}`);
+            console.error('样式学习错误:', error);
         }
     }
 
