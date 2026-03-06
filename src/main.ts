@@ -15,6 +15,51 @@ interface StylePatterns {
     paragraphStructure: string[];
     tone: string;
     keywords: string[];
+    // 新增：主题和视觉样式
+    themeStyle?: ThemeStyle;
+    backgroundGrid?: BackgroundGrid;
+}
+
+interface ThemeStyle {
+    // 配色方案
+    primaryColor: string;
+    secondaryColor: string;
+    textColor: string;
+    backgroundColor: string;
+    accentColor: string;
+    
+    // 字体样式
+    fontFamily: string;
+    fontSize: string;
+    fontWeight: string;
+    lineHeight: string;
+    
+    // 排版样式
+    textAlign: string;
+    textIndent: string;
+    paragraphSpacing: string;
+    
+    // 装饰元素
+    borderRadius: string;
+    boxShadow: string;
+    borderStyle: string;
+}
+
+interface BackgroundGrid {
+    // 网格类型
+    type: 'none' | 'dots' | 'lines' | 'squares' | 'custom';
+    
+    // 网格颜色
+    color: string;
+    opacity: number;
+    
+    // 网格间距
+    spacing: string;
+    size: string;
+    
+    // 网格样式
+    pattern: string;
+    backgroundImage?: string;
 }
 
 interface StyleCopilotSettings {
@@ -101,26 +146,41 @@ export default class StyleCopilotPlugin extends Plugin {
         const notice = new Notice('正在学习样式...', 0);
 
         try {
-            // 1. 抓取文章内容
-            const content = await this.fetchArticleContent(url);
+            // 1. 抓取文章HTML内容
+            const html = await this.fetchArticleHtml(url);
             
-            // 2. 分析写作风格
-            const patterns = this.analyzeStyle(content);
+            // 2. 提取纯文本内容
+            const textContent = this.extractTextFromHtml(html);
             
-            // 3. 创建样式模板
+            // 3. 分析写作风格
+            const patterns = this.analyzeStyle(textContent);
+            
+            // 4. 分析主题和视觉样式
+            patterns.themeStyle = this.extractThemeStyle(html);
+            
+            // 5. 提取背景网格样式
+            patterns.backgroundGrid = this.extractBackgroundGrid(html);
+            
+            // 6. 创建样式模板
             const template: StyleTemplate = {
-                name: this.extractTitle(content) || `样式-${Date.now()}`,
+                name: this.extractTitle(html) || `样式-${Date.now()}`,
                 createdAt: Date.now(),
                 source: url,
                 patterns: patterns
             };
 
-            // 4. 保存样式模板
+            // 7. 保存样式模板
             this.settings.savedStyles.push(template);
             void this.saveSettings();
 
             notice.hide();
-            new Notice(`✅ 样式学习成功: ${template.name}`);
+            
+            // 显示学习结果摘要
+            const themeInfo = patterns.themeStyle ? '✓ 主题样式' : '';
+            const gridInfo = patterns.backgroundGrid?.type !== 'none' ? '✓ 背景网格' : '';
+            const features = [themeInfo, gridInfo].filter(f => f).join('、');
+            
+            new Notice(`✅ 样式学习成功: ${template.name}\n${features ? '已提取: ' + features : ''}`);
         } catch (error) {
             notice.hide();
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -129,7 +189,7 @@ export default class StyleCopilotPlugin extends Plugin {
         }
     }
 
-    private async fetchArticleContent(url: string): Promise<string> {
+    private async fetchArticleHtml(url: string): Promise<string> {
         try {
             const response = await fetch(url, {
                 headers: {
@@ -141,12 +201,16 @@ export default class StyleCopilotPlugin extends Plugin {
                 throw new Error(`HTTP错误: ${response.status}`);
             }
 
-            const html = await response.text();
-            return this.extractTextFromHtml(html);
+            return await response.text();
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             throw new Error(`抓取失败: ${errorMessage}`);
         }
+    }
+
+    private async fetchArticleContent(url: string): Promise<string> {
+        const html = await this.fetchArticleHtml(url);
+        return this.extractTextFromHtml(html);
     }
 
     private extractTextFromHtml(html: string): string {
@@ -206,6 +270,184 @@ export default class StyleCopilotPlugin extends Plugin {
         };
     }
 
+    // ==================== 主题样式提取 ====================
+
+    private extractThemeStyle(html: string): ThemeStyle {
+        const defaultTheme: ThemeStyle = {
+            primaryColor: '#000000',
+            secondaryColor: '#666666',
+            textColor: '#333333',
+            backgroundColor: '#ffffff',
+            accentColor: '#0066cc',
+            fontFamily: 'system-ui',
+            fontSize: '16px',
+            fontWeight: '400',
+            lineHeight: '1.6',
+            textAlign: 'left',
+            textIndent: '0',
+            paragraphSpacing: '1em',
+            borderRadius: '4px',
+            boxShadow: 'none',
+            borderStyle: 'none'
+        };
+
+        try {
+            // 提取内联样式
+            const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
+            const inlineStyles = styleMatch ? styleMatch.join('\n') : '';
+
+            // 提取配色方案
+            const colorPatterns = [
+                /color:\s*([^;]+)/gi,
+                /background-color:\s*([^;]+)/gi,
+                /background:\s*([^;]+)/gi,
+                /border-color:\s*([^;]+)/gi
+            ];
+
+            const colors: string[] = [];
+            colorPatterns.forEach(pattern => {
+                const matches = inlineStyles.match(pattern);
+                if (matches) {
+                    matches.forEach(match => {
+                        const colorMatch = match.match(/#\w+|rgb\([^)]+\)|rgba\([^)]+\)|hsl\([^)]+\)/);
+                        if (colorMatch) {
+                            colors.push(colorMatch[0]);
+                        }
+                    });
+                }
+            });
+
+            // 提取主要颜色
+            if (colors.length > 0) {
+                defaultTheme.primaryColor = colors[0];
+                defaultTheme.textColor = colors.find(c => this.isTextColor(c)) || colors[0];
+                defaultTheme.backgroundColor = colors.find(c => this.isBackgroundColor(c)) || '#ffffff';
+            }
+
+            // 提取字体样式
+            const fontMatch = inlineStyles.match(/font-family:\s*([^;]+)/i);
+            if (fontMatch) {
+                defaultTheme.fontFamily = fontMatch[1].trim();
+            }
+
+            const fontSizeMatch = inlineStyles.match(/font-size:\s*([^;]+)/i);
+            if (fontSizeMatch) {
+                defaultTheme.fontSize = fontSizeMatch[1].trim();
+            }
+
+            const lineHeightMatch = inlineStyles.match(/line-height:\s*([^;]+)/i);
+            if (lineHeightMatch) {
+                defaultTheme.lineHeight = lineHeightMatch[1].trim();
+            }
+
+            // 提取排版样式
+            const textAlignMatch = inlineStyles.match(/text-align:\s*([^;]+)/i);
+            if (textAlignMatch) {
+                defaultTheme.textAlign = textAlignMatch[1].trim();
+            }
+
+            // 提取装饰元素
+            const borderRadiusMatch = inlineStyles.match(/border-radius:\s*([^;]+)/i);
+            if (borderRadiusMatch) {
+                defaultTheme.borderRadius = borderRadiusMatch[1].trim();
+            }
+
+            const boxShadowMatch = inlineStyles.match(/box-shadow:\s*([^;]+)/i);
+            if (boxShadowMatch) {
+                defaultTheme.boxShadow = boxShadowMatch[1].trim();
+            }
+
+            return defaultTheme;
+        } catch (error) {
+            console.error('主题样式提取错误:', error);
+            return defaultTheme;
+        }
+    }
+
+    private isTextColor(color: string): boolean {
+        // 简单判断是否为文字颜色（深色）
+        const darkColors = ['#000', '#333', '#222', '#111', '#444', '#555', '#666'];
+        return darkColors.some(dc => color.toLowerCase().includes(dc));
+    }
+
+    private isBackgroundColor(color: string): boolean {
+        // 简单判断是否为背景颜色（浅色）
+        const lightColors = ['#fff', '#ffffff', '#f5', '#faf', '#f0f', '#ff'];
+        return lightColors.some(lc => color.toLowerCase().includes(lc));
+    }
+
+    // ==================== 背景网格提取 ====================
+
+    private extractBackgroundGrid(html: string): BackgroundGrid {
+        const defaultGrid: BackgroundGrid = {
+            type: 'none',
+            color: '#e0e0e0',
+            opacity: 0.5,
+            spacing: '20px',
+            size: '1px',
+            pattern: ''
+        };
+
+        try {
+            // 提取样式内容
+            const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
+            const styles = styleMatch ? styleMatch.join('\n') : '';
+
+            // 检测网格类型
+            if (styles.includes('grid') || styles.includes('网格')) {
+                // 检测点状网格
+                if (styles.includes('dot') || styles.includes('点')) {
+                    defaultGrid.type = 'dots';
+                    defaultGrid.pattern = 'radial-gradient(circle, {color} 1px, transparent 1px)';
+                }
+                // 检测线状网格
+                else if (styles.includes('line') || styles.includes('线')) {
+                    defaultGrid.type = 'lines';
+                    defaultGrid.pattern = 'linear-gradient({color} 1px, transparent 1px)';
+                }
+                // 检测方格网格
+                else {
+                    defaultGrid.type = 'squares';
+                    defaultGrid.pattern = 'linear-gradient({color} 1px, transparent 1px), linear-gradient(90deg, {color} 1px, transparent 1px)';
+                }
+            }
+
+            // 提取网格颜色
+            const gridColorMatch = styles.match(/grid-color:\s*([^;]+)/i);
+            if (gridColorMatch) {
+                defaultGrid.color = gridColorMatch[1].trim();
+            }
+
+            // 提取网格间距
+            const gridGapMatch = styles.match(/grid-gap:\s*([^;]+)/i) || 
+                                styles.match(/gap:\s*([^;]+)/i);
+            if (gridGapMatch) {
+                defaultGrid.spacing = gridGapMatch[1].trim();
+            }
+
+            // 提取背景图片（可能是网格图案）
+            const bgImageMatch = styles.match(/background-image:\s*([^;]+)/i);
+            if (bgImageMatch) {
+                defaultGrid.backgroundImage = bgImageMatch[1].trim();
+                defaultGrid.type = 'custom';
+            }
+
+            // 提取透明度
+            const opacityMatch = styles.match(/opacity:\s*([^;]+)/i);
+            if (opacityMatch) {
+                const opacity = parseFloat(opacityMatch[1]);
+                if (!isNaN(opacity)) {
+                    defaultGrid.opacity = opacity;
+                }
+            }
+
+            return defaultGrid;
+        } catch (error) {
+            console.error('背景网格提取错误:', error);
+            return defaultGrid;
+        }
+    }
+
     // ==================== 样式应用功能 ====================
 
     applyStyleToNote(): void {
@@ -228,18 +470,141 @@ export default class StyleCopilotPlugin extends Plugin {
 
         try {
             const content = await this.app.vault.read(file);
+            
+            // 应用写作风格
             const styledContent = this.transformContent(content, style);
             
-            await this.app.vault.modify(file, styledContent);
+            // 应用主题和背景网格（生成CSS）
+            const themeCSS = this.generateThemeCSS(style.patterns.themeStyle);
+            const gridCSS = this.generateGridCSS(style.patterns.backgroundGrid);
+            
+            // 将CSS注入到笔记的前言（frontmatter）中
+            const finalContent = this.injectStyles(styledContent, themeCSS + gridCSS);
+            
+            await this.app.vault.modify(file, finalContent);
             
             notice.hide();
-            new Notice(`✅ 样式应用成功: ${style.name}`);
+            
+            // 显示应用结果
+            const appliedFeatures = [];
+            if (style.patterns.themeStyle) appliedFeatures.push('主题样式');
+            if (style.patterns.backgroundGrid?.type !== 'none') appliedFeatures.push('背景网格');
+            appliedFeatures.push('写作风格');
+            
+            new Notice(`✅ 样式应用成功: ${style.name}\n已应用: ${appliedFeatures.join('、')}`);
         } catch (error) {
             notice.hide();
             const errorMessage = error instanceof Error ? error.message : String(error);
             new Notice(`❌ 应用失败: ${errorMessage}`);
             console.error('样式应用错误:', error);
         }
+    }
+
+    private generateThemeCSS(theme?: ThemeStyle): string {
+        if (!theme) return '';
+
+        return `
+/* 主题样式 */
+.theme-style {
+    --primary-color: ${theme.primaryColor};
+    --secondary-color: ${theme.secondaryColor};
+    --text-color: ${theme.textColor};
+    --background-color: ${theme.backgroundColor};
+    --accent-color: ${theme.accentColor};
+    
+    font-family: ${theme.fontFamily};
+    font-size: ${theme.fontSize};
+    font-weight: ${theme.fontWeight};
+    line-height: ${theme.lineHeight};
+    text-align: ${theme.textAlign};
+    color: ${theme.textColor};
+    background-color: ${theme.backgroundColor};
+}
+
+.theme-style p {
+    text-indent: ${theme.textIndent};
+    margin-bottom: ${theme.paragraphSpacing};
+}
+
+.theme-style .highlight {
+    background-color: ${theme.accentColor};
+    padding: 2px 4px;
+    border-radius: ${theme.borderRadius};
+}
+
+.theme-style .card {
+    border-radius: ${theme.borderRadius};
+    box-shadow: ${theme.boxShadow};
+    border: ${theme.borderStyle};
+}
+`;
+    }
+
+    private generateGridCSS(grid?: BackgroundGrid): string {
+        if (!grid || grid.type === 'none') return '';
+
+        let gridPattern = '';
+        switch (grid.type) {
+            case 'dots':
+                gridPattern = `
+    background-image: radial-gradient(circle, ${grid.color} 1px, transparent 1px);
+    background-size: ${grid.spacing} ${grid.spacing};`;
+                break;
+            case 'lines':
+                gridPattern = `
+    background-image: linear-gradient(${grid.color} 1px, transparent 1px);
+    background-size: 100% ${grid.spacing};`;
+                break;
+            case 'squares':
+                gridPattern = `
+    background-image: 
+        linear-gradient(${grid.color} 1px, transparent 1px),
+        linear-gradient(90deg, ${grid.color} 1px, transparent 1px);
+    background-size: ${grid.spacing} ${grid.spacing};`;
+                break;
+            case 'custom':
+                gridPattern = grid.backgroundImage ? `
+    background-image: ${grid.backgroundImage};` : '';
+                break;
+        }
+
+        return `
+/* 背景网格 */
+.background-grid {
+    position: relative;
+    opacity: ${grid.opacity};${gridPattern}
+}
+
+.background-grid::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: -1;
+}
+`;
+    }
+
+    private injectStyles(content: string, css: string): string {
+        // 如果有CSS样式，添加到frontmatter或style标签中
+        if (!css.trim()) return content;
+
+        // 检查是否已有frontmatter
+        if (content.startsWith('---')) {
+            // 在现有frontmatter后添加style标签
+            const frontmatterEnd = content.indexOf('---', 3);
+            if (frontmatterEnd !== -1) {
+                const frontmatter = content.substring(0, frontmatterEnd + 3);
+                const body = content.substring(frontmatterEnd + 3);
+                return `${frontmatter}\n\n<style>${css}</style>\n${body}`;
+            }
+        }
+
+        // 没有frontmatter，直接添加style标签
+        return `<style>${css}</style>\n\n${content}`;
     }
 
     private transformContent(content: string, style: StyleTemplate): string {
@@ -523,11 +888,25 @@ class StyleManagerModal extends Modal {
                     this.onOpen(); // 刷新列表
                 });
 
-                const meta = styleItem.createEl('div', {
-                    text: `来源: ${style.source}\n创建时间: ${new Date(style.createdAt).toLocaleString()}`
-                });
+                const meta = styleItem.createEl('div');
                 meta.style.fontSize = '0.9em';
                 meta.style.color = 'var(--text-muted)';
+                
+                // 显示样式特征
+                const features: string[] = [];
+                if (style.patterns.themeStyle) features.push('🎨 主题');
+                if (style.patterns.backgroundGrid?.type !== 'none') features.push('📐 网格');
+                features.push('📝 写作风格');
+                
+                meta.createEl('div', {
+                    text: `来源: ${style.source}`
+                });
+                meta.createEl('div', {
+                    text: `创建时间: ${new Date(style.createdAt).toLocaleString()}`
+                });
+                meta.createEl('div', {
+                    text: `包含: ${features.join(' | ')}`
+                });
             });
         }
 
